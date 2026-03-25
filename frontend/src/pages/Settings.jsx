@@ -421,7 +421,7 @@ export default function Settings() {
     }
   }
 
-  const currentLang = settings.language || 'de'
+  const currentLang = settings.language || 'it'
   const currentCurrency = settings.currency || 'EUR'
   const currentPriceType = settings.price_primary || 'trend'
 
@@ -600,6 +600,7 @@ export default function Settings() {
                     { value: 'de', label: '🇩🇪 DE' },
                     { value: 'en', label: '🇬🇧 EN' },
                     { value: 'zh', label: '🇨🇳 中文' },
+                    { value: 'it', label: '🇮🇹 IT' },
                   ]}
                   onChange={handleLanguageChange}
                 />

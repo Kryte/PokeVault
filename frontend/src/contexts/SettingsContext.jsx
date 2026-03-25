@@ -2,11 +2,12 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 import de from '../i18n/de'
 import en from '../i18n/en'
 import zh from '../i18n/zh'
+import it from '../i18n/it'
 
-const translations = { de, en, zh }
+const translations = { de, en, zh, it }
 
 const DEFAULT_SETTINGS = {
-  language: 'de',
+  language: 'it',
   price_display: '["trend", "avg1", "avg7", "avg30", "low"]',
   price_primary: 'trend',
 }
