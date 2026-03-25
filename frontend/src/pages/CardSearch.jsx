@@ -293,6 +293,7 @@ export default function CardSearch() {
           { value: 'all', label: t('lang.all') },
           { value: 'de', label: `🇩🇪 ${t('lang.de')}` },
           { value: 'en', label: `🇬🇧 ${t('lang.en')}` },
+          { value: 'it', label: `🇮🇹 ${t('lang.it')}` },
           { value: 'zh', label: `🇨🇳 ${t('lang.zh')}` },
         ].map(opt => (
           <button

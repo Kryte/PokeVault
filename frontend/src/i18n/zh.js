@@ -691,6 +691,8 @@ const zh = {
     selectHint: '这张卡牌是哪种语言？',
     de_full: '德语',
     en_full: '英语',
+    it: '意',
+    it_full: '意大利语',
     zh_full: '中文',
     setLangFilter: '按语言筛选系列',
     searchLangFilter: '按语言筛选搜索',

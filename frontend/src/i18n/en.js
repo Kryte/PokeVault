@@ -690,6 +690,8 @@ const en = {
     selectHint: 'Which language is this card?',
     de_full: 'German',
     en_full: 'English',
+    it: 'IT',
+    it_full: 'Italian',
     zh: 'ZH',
     zh_full: 'Chinese',
     setLangFilter: 'Filter sets by language',
