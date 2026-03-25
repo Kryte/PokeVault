@@ -77,7 +77,7 @@ function ScanAddModal({ match, defaultLang, onClose, onAdded }) {
             <div>
               <label className="text-xs text-text-muted mb-1.5 block font-medium">🌐 {t('lang.filter')}</label>
               <div className="flex gap-2">
-                {['de', 'en', 'zh'].map(l => (
+                {['de', 'en', 'zh', 'it'].map(l => (
                   <button
                     key={l}
                     type="button"
@@ -89,11 +89,11 @@ function ScanAddModal({ match, defaultLang, onClose, onAdded }) {
                           ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50'
                           : l === 'en'
                           ? 'bg-blue-500/20 text-blue-400 border-blue-500/50'
-                          : 'bg-red-500/20 text-red-400 border-red-500/50'
+                          : l === 'it' ? 'bg-green-500/20 text-green-400 border-green-500/50' : 'bg-red-500/20 text-red-400 border-red-500/50'
                         : 'bg-white/5 text-text-muted border-white/10'
                     )}
                   >
-                    {l === 'de' ? `🇩🇪 ${t('lang.de_full')}` : l === 'en' ? `🇬🇧 ${t('lang.en_full')}` : `🇨🇳 ${t('lang.zh_full')}`}
+                    {l === 'de' ? `🇩🇪 ${t('lang.de_full')}` : l === 'en' ? `🇬🇧 ${t('lang.en_full')}` : l === 'it' ? `🇮🇹 ${t('lang.it_full')}` : `🇨🇳 ${t('lang.zh_full')}`}
                   </button>
                 ))}
               </div>
@@ -316,9 +316,13 @@ export default function CardScanner({ isOpen, onClose, onCardSelected }) {
                           <span className={`absolute top-1 right-1 text-[8px] font-black px-1 py-0.5 rounded leading-none ${
                             matchLang === 'de'
                               ? 'bg-yellow-500/80 text-yellow-900 border border-yellow-500/50'
+                              : matchLang === 'it'
+                              ? 'bg-green-500/80 text-white border border-green-500/50'
+                              : matchLang === 'zh'
+                              ? 'bg-red-500/80 text-white border border-red-500/50'
                               : 'bg-blue-500/80 text-white border border-blue-500/50'
                           }`}>
-                            {matchLang === 'de' ? '🇩🇪' : '🇬🇧'}
+                            {matchLang === 'de' ? '🇩🇪' : matchLang === 'it' ? '🇮🇹' : matchLang === 'zh' ? '🇨🇳' : '🇬🇧'}
                           </span>
                           {/* Hover overlay with add button */}
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100 rounded-xl">
