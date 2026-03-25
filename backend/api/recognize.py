@@ -69,14 +69,44 @@ async def fetch_cardmarket_it_price(
             return None
 
         result = resp.json()
-        text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
-
-        json_match = re.search(r'\{.*\}', text, re.DOTALL)
-        if not json_match:
-            logger.warning("No JSON in Gemini price response")
+        
+        # Safely extract text from nested Gemini response
+        if not isinstance(result, dict) or "candidates" not in result:
+            logger.warning("Invalid Gemini response structure: no candidates")
+            return None
+        
+        candidates = result.get("candidates", [])
+        if not candidates or not isinstance(candidates, list):
+            logger.warning("Gemini candidates is empty or not a list")
+            return None
+        
+        candidate = candidates[0]
+        if not isinstance(candidate, dict) or "content" not in candidate:
+            logger.warning("Invalid Gemini candidate structure: no content")
+            return None
+        
+        content = candidate.get("content", {})
+        parts = content.get("parts", [])
+        if not parts or not isinstance(parts, list):
+            logger.warning("Gemini content has no parts")
+            return None
+        
+        text = parts[0].get("text", "").strip()
+        if not text:
+            logger.warning("Gemini response text is empty")
             return None
 
-        price_data = json.loads(json_match.group())
+        # Extract JSON, handling markdown code blocks
+        json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text, re.DOTALL)
+        if not json_match:
+            logger.warning(f"No JSON found in Gemini price response: {text[:200]}")
+            return None
+
+        try:
+            price_data = json.loads(json_match.group())
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse JSON from Gemini: {e}")
+            return None
 
         # Normalize to floats
         price_avg = price_data.get("price_avg")
@@ -174,13 +204,60 @@ Respond ONLY with this exact JSON (no markdown, no explanation):
         resp.raise_for_status()
 
         result = resp.json()
-        text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+        
+        # Safely extract text from nested Gemini response
+        if not isinstance(result, dict) or "candidates" not in result:
+            raise HTTPException(
+                status_code=500,
+                detail="Ungültige Gemini-Antwortstruktur (keine candidates)"
+            )
+        
+        candidates = result.get("candidates", [])
+        if not candidates or not isinstance(candidates, list):
+            raise HTTPException(
+                status_code=500,
+                detail="Gemini candidates ist leer oder ungültig"
+            )
+        
+        candidate = candidates[0]
+        if not isinstance(candidate, dict) or "content" not in candidate:
+            raise HTTPException(
+                status_code=500,
+                detail="Ungültige Gemini candidate-Struktur (kein content)"
+            )
+        
+        content = candidate.get("content", {})
+        parts = content.get("parts", [])
+        if not parts or not isinstance(parts, list):
+            raise HTTPException(
+                status_code=500,
+                detail="Gemini hat keine parts in content"
+            )
+        
+        text = parts[0].get("text", "").strip()
+        if not text:
+            raise HTTPException(
+                status_code=500,
+                detail="Gemini response text ist leer"
+            )
 
         # Parse JSON from Gemini response (handles markdown code blocks too)
-        json_match = re.search(r'\{.*\}', text, re.DOTALL)
+        json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text, re.DOTALL)
         if not json_match:
-            raise ValueError("No JSON found in Gemini response")
-        card_info = json.loads(json_match.group())
+            logger.warning(f"No JSON found in Gemini response: {text[:500]}")
+            raise HTTPException(
+                status_code=500,
+                detail="Keine JSON-Daten in Gemini-Antwort gefunden"
+            )
+        
+        try:
+            card_info = json.loads(json_match.group())
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse JSON from Gemini: {e}, text: {text[:500]}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Fehler beim JSON-Parsing der Gemini-Antwort: {e}"
+            )
 
     except HTTPException:
         raise
@@ -250,7 +327,8 @@ Respond ONLY with this exact JSON (no markdown, no explanation):
                             "lang": lang,
                             "_lang": lang,
                         })
-        except Exception:
+        except Exception as e:
+            logger.warning(f"TCGdex search failed for lang={lang}, name='{search_name}': {e}")
             continue
 
     # Enrich results with set name from local DB

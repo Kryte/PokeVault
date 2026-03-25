@@ -166,6 +166,24 @@ def _run_migrations(conn):
         "ALTER TABLE binders ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)",
         "ALTER TABLE product_purchases ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)",
         "ALTER TABLE portfolio_snapshots ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)",
+        # v43: Add notifications table for persistent notification storage
+        """CREATE TABLE IF NOT EXISTS notifications (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            title VARCHAR NOT NULL,
+            message TEXT NOT NULL,
+            notification_type VARCHAR NOT NULL,
+            related_card_id VARCHAR REFERENCES cards(id),
+            related_wishlist_id INTEGER REFERENCES wishlist(id),
+            is_read BOOLEAN DEFAULT FALSE,
+            action_url VARCHAR,
+            created_at TIMESTAMP DEFAULT NOW(),
+            read_at TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT NOW()
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read)",
+        "CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at)",
     ]
     for stmt in migrations:
         try:

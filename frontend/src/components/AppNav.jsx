@@ -2,6 +2,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { LogOut } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useSettings } from '../contexts/SettingsContext'
+import NotificationCenter from './NotificationCenter'
 
 const PAGE_TITLE_KEYS = {
   '/collection': 'nav.collection',
@@ -43,24 +44,27 @@ export default function AppNav() {
           <p className="text-[11px] font-black uppercase tracking-[0.2em] text-text-muted text-center truncate flex-1 min-w-0">
             {title}
           </p>
-          {multiUser ? (
-            <button
-              onClick={handleLogout}
-              className="flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-lg px-1.5 text-text-muted transition-colors hover:text-brand-red pointer-events-auto"
-              aria-label={t('auth.logout')}
-            >
-              {user?.avatar_id ? (
-                <img
-                  src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/${user.avatar_id}.gif`}
-                  alt={`${user.username} avatar`}
-                  className="h-5 w-5 pixelated"
-                />
-              ) : null}
-              <LogOut size={16} />
-            </button>
-          ) : (
-            <div className="w-8" />
-          )}
+          <div className="flex items-center gap-2">
+            <NotificationCenter />
+            {multiUser ? (
+              <button
+                onClick={handleLogout}
+                className="flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-lg px-1.5 text-text-muted transition-colors hover:text-brand-red pointer-events-auto"
+                aria-label={t('auth.logout')}
+              >
+                {user?.avatar_id ? (
+                  <img
+                    src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/${user.avatar_id}.gif`}
+                    alt={`${user.username} avatar`}
+                    className="h-5 w-5 pixelated"
+                  />
+                ) : null}
+                <LogOut size={16} />
+              </button>
+            ) : (
+              <div className="w-8" />
+            )}
+          </div>
         </div>
       )}
 

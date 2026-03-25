@@ -208,4 +208,17 @@ export const getLeaderboard = () => api.get('/social/leaderboard')
 export const compareUsers = (userId) => api.get(`/social/compare/${userId}`)
 export const getAchievements = (userId) => api.get(`/social/achievements/${userId}`)
 
+// Notifications
+export const getNotifications = (isRead = null, skip = 0, limit = 50) => {
+  const params = { skip, limit }
+  if (isRead !== null) {
+    params.is_read = isRead
+  }
+  return api.get('/notifications/', { params }).then(r => r.data)
+}
+export const markNotificationAsRead = (notificationId) => api.post(`/notifications/${notificationId}/read`).then(r => r.data)
+export const markAllNotificationsAsRead = () => api.post('/notifications/read-all').then(r => r.data)
+export const deleteNotification = (notificationId) => api.delete(`/notifications/${notificationId}`).then(r => r.data)
+export const getUnreadNotificationCount = () => api.get('/notifications/unread-count').then(r => r.data)
+
 export default api

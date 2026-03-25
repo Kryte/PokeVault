@@ -262,3 +262,23 @@ class ImageCache(Base):
     data = Column(LargeBinary, nullable=False)
     content_type = Column(String, default="image/webp")
     cached_at = Column(DateTime, default=func.now())
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String, nullable=False)
+    message = Column(Text, nullable=False)
+    notification_type = Column(String, nullable=False)  # "price_alert", "card_found", "wishlist", etc.
+    related_card_id = Column(String, ForeignKey("cards.id"), nullable=True)  # Link to card if applicable
+    related_wishlist_id = Column(Integer, ForeignKey("wishlist.id"), nullable=True)  # Link to wishlist if applicable
+    is_read = Column(Boolean, default=False, index=True)
+    action_url = Column(String, nullable=True)  # URL to navigate to when clicked
+    created_at = Column(DateTime, default=func.now(), index=True)
+    read_at = Column(DateTime, nullable=True)
+
+    user = relationship("User", foreign_keys=[user_id])
+    card = relationship("Card", foreign_keys=[related_card_id])
+    wishlist_item = relationship("WishlistItem", foreign_keys=[related_wishlist_id])
