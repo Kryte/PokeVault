@@ -222,7 +222,7 @@ def get_all_sets(display_lang: str = "en") -> List[Dict]:
     with httpx.Client(timeout=60.0) as client:
         all_sets: List[Dict] = []
 
-        for lang in ["en", "de"]:
+        for lang in ["en", "de", "it"]:
             try:
                 url = get_base_url(lang)
                 response = client.get(f"{url}/sets")

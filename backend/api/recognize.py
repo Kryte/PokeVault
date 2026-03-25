@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from api.auth import get_current_user
 from database import get_db
 from models import Setting, User, Set
+from services.sync_service import upsert_card
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +127,7 @@ async def fetch_cardmarket_it_price(
         }
 
     except Exception as e:
-        logger.warning(f"Cardmarket IT price fetch failed (non-blocking): {e}")
+        logger.warning(f"Cardmarket IT price fetch failed (non-blocking): {str(e) or type(e).__name__}")
         return None
 
 
@@ -331,10 +332,30 @@ Respond ONLY with this exact JSON (no markdown, no explanation):
             logger.warning(f"TCGdex search failed for lang={lang}, name='{search_name}': {e}")
             continue
 
-    # Enrich results with set name from local DB
+    # Enrich results with set name from local DB and ensure cards exist
     for card in all_results:
-        tcg_card_id = card.get("tcg_card_id", "")
+        composite_id = card.get("id", "")
         card_lang = card.get("_lang", "en")
+        
+        # Check if card exists in DB
+        existing_card = db.query(Card).filter(Card.id == composite_id).first()
+        if not existing_card:
+            # Card doesn't exist, try to fetch and save it
+            try:
+                from services import pokemon_api
+                tcg_id = card.get("tcg_card_id", "")
+                if tcg_id:
+                    card_data = pokemon_api.get_card(tcg_id, lang=card_lang)
+                    if card_data:
+                        parsed = pokemon_api.parse_card_for_db(card_data, lang=card_lang)
+                        upsert_card(db, parsed)
+                        db.commit()
+                        logger.info(f"Auto-synced missing card: {composite_id}")
+            except Exception as e:
+                logger.warning(f"Failed to auto-sync card {composite_id}: {e}")
+        
+        # Enrich with set name
+        tcg_card_id = card.get("tcg_card_id", "")
         if "-" in tcg_card_id:
             set_id = tcg_card_id.rsplit("-", 1)[0]
             local_set = db.query(Set).filter(
@@ -360,42 +381,72 @@ Respond ONLY with this exact JSON (no markdown, no explanation):
         f"Recognize dedup: {len(all_results)} before -> {len(deduped)} after dedup by (card_id, _lang)"
     )
 
-    # Rank results: cards with matching number first
+    # Rank results: prioritize detected language, then cards with matching number
+    detected_lang = card_info.get("language", "en").lower().strip()
     recognized_number = card_info.get("number")
-    number_match_count = 0
-    number_match_clear = False
-    if recognized_number:
-        num_match = re.match(r"(\d+)", str(recognized_number).strip())
-        if num_match:
-            target_num = str(int(num_match.group(1)))
-
-            def number_sort_key(card):
+    
+    def combined_sort_key(card):
+        # Primary: prefer cards in detected language
+        lang_score = 0 if card.get("_lang", "en") == detected_lang else 1
+        
+        # Secondary: prefer cards with matching number
+        number_score = 1
+        if recognized_number:
+            num_match = re.match(r"(\d+)", str(recognized_number).strip())
+            if num_match:
+                target_num = str(int(num_match.group(1)))
                 card_num = card.get("number", "")
                 if card_num:
                     cn_match = re.match(r"(\d+)", str(card_num).strip())
                     if cn_match and str(int(cn_match.group(1))) == target_num:
-                        return 0
-                return 1
-
-            deduped.sort(key=number_sort_key)
-            number_match_count = sum(1 for card in deduped if number_sort_key(card) == 0)
-            number_match_clear = (
-                len(deduped) > 0 and number_sort_key(deduped[0]) == 0 and number_match_count == 1
+                        number_score = 0
+        
+        return (lang_score, number_score)
+    
+    deduped.sort(key=combined_sort_key)
+    
+    # Count matches for logging
+    lang_match_count = sum(1 for card in deduped if card.get("_lang", "en") == detected_lang)
+    number_match_count = 0
+    if recognized_number:
+        num_match = re.match(r"(\d+)", str(recognized_number).strip())
+        if num_match:
+            target_num = str(int(num_match.group(1)))
+            number_match_count = sum(1 for card in deduped if 
+                card.get("number") and 
+                re.match(r"(\d+)", str(card.get("number")).strip()) and
+                str(int(re.match(r"(\d+)", str(card.get("number")).strip()).group(1))) == target_num
             )
-            logger.info(f"Ranked results by number match (target: {target_num})")
+    
+    logger.info(f"Ranked results: {lang_match_count} in detected language '{detected_lang}', {number_match_count} with matching number")
 
-    # Visual verification
+    # Visual verification - only if we have multiple candidates and unclear matches
     top_candidates = deduped[:5]
-    if len(top_candidates) >= 2 and not number_match_clear:
+    detected_lang = card_info.get("language", "en").lower().strip()
+    
+    # Skip visual verification if we have a clear language + number match
+    has_clear_match = (
+        len(deduped) > 0 and 
+        deduped[0].get("_lang", "en") == detected_lang and
+        recognized_number and
+        deduped[0].get("number") and
+        str(deduped[0].get("number")) == str(recognized_number)
+    )
+    
+    if len(top_candidates) >= 2 and not has_clear_match:
         try:
             candidate_parts = [
-                {"text": "Here is the original card photo the user took:"},
+                {"text": f"Here is the original Pokemon card photo the user took (detected language: {detected_lang.upper()}):"},
                 {"inline_data": {"mime_type": mime_type, "data": image_b64}},
                 {
                     "text": (
-                        "Below are candidate cards from our database. Which one matches the photo "
-                        "above? Look at the artwork, card name, and card number. Respond with ONLY "
-                        "the number (1, 2, 3...) of the best match, or 0 if none match.\n"
+                        f"Below are candidate cards from our database. The original card is in {detected_lang.upper()}. "
+                        "Which candidate BEST matches the photo above? Consider:\n"
+                        "- Card artwork and visual style\n"
+                        "- Card name and text language\n"
+                        "- Card number and set\n"
+                        "- Overall card design and layout\n\n"
+                        "Respond with ONLY the number (1, 2, 3...) of the best match, or 0 if none match well.\n"
                     )
                 },
             ]
