@@ -23,6 +23,83 @@ def get_gemini_key(db: Session) -> str:
     return os.environ.get("GEMINI_API_KEY", "")
 
 
+async def fetch_cardmarket_it_price(
+    card_name_en: str,
+    card_number: str | None,
+    set_name: str | None,
+    api_key: str,
+) -> dict | None:
+    """
+    Uses Gemini with Google Search grounding to fetch the Italian Cardmarket price
+    for a given card. Returns a dict with 'price', 'trend', 'url' or None on failure.
+    """
+    # Build a search query as specific as possible
+    query_parts = [card_name_en]
+    if set_name:
+        query_parts.append(set_name)
+    if card_number:
+        query_parts.append(card_number)
+    search_hint = " ".join(query_parts)
+
+    price_prompt = (
+        f"Search on cardmarket.com for the Pokemon TCG card: {search_hint}. "
+        "Find the current price for the ITALIAN language version specifically. "
+        "If no Italian version exists, find the general price. "
+        "Respond ONLY with this exact JSON (no markdown, no explanation): "
+        '{"price_avg": "average price in EUR as number or null", '
+        '"price_trend": "price trend in EUR as number or null", '
+        '"url": "direct cardmarket.com product URL or null", '
+        '"found_language": "language of the price found (it/en/de/etc)"}'
+    )
+
+    gemini_url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"gemini-2.5-flash:generateContent?key={api_key}"
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(gemini_url, json={
+                "contents": [{"parts": [{"text": price_prompt}]}],
+                "tools": [{"google_search": {}}],
+            })
+
+        if resp.status_code != 200:
+            logger.warning(f"Gemini price search returned {resp.status_code}")
+            return None
+
+        result = resp.json()
+        text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+        json_match = re.search(r'\{.*\}', text, re.DOTALL)
+        if not json_match:
+            logger.warning("No JSON in Gemini price response")
+            return None
+
+        price_data = json.loads(json_match.group())
+
+        # Normalize to floats
+        price_avg = price_data.get("price_avg")
+        price_trend = price_data.get("price_trend")
+        if isinstance(price_avg, str):
+            price_avg = re.search(r'[\d.,]+', price_avg)
+            price_avg = float(price_avg.group().replace(',', '.')) if price_avg else None
+        if isinstance(price_trend, str):
+            price_trend = re.search(r'[\d.,]+', price_trend)
+            price_trend = float(price_trend.group().replace(',', '.')) if price_trend else None
+
+        return {
+            "price_avg": price_avg,
+            "price_trend": price_trend,
+            "url": price_data.get("url"),
+            "found_language": price_data.get("found_language", "unknown"),
+        }
+
+    except Exception as e:
+        logger.warning(f"Cardmarket IT price fetch failed (non-blocking): {e}")
+        return None
+
+
 @router.post("/recognize")
 async def recognize_card(
     file: UploadFile = File(...),
@@ -33,6 +110,7 @@ async def recognize_card(
     Accepts a card image, uses Gemini Vision to extract card details
     including the card's language, then searches TCGdex in that language.
     Supports both German and English (and other) cards automatically.
+    For Italian cards (or all cards), also fetches real-time Cardmarket IT price.
     """
     api_key = get_gemini_key(db)
     if not api_key:
@@ -114,9 +192,7 @@ Respond ONLY with this exact JSON (no markdown, no explanation):
     if not card_name:
         raise HTTPException(status_code=422, detail="Kartenname konnte nicht erkannt werden.")
 
-    # Strip card suffixes for broader TCGdex search — exact variants differ between
-    # printed text ("EX") and TCGdex naming ("ex", "-ex"). The number ranking and
-    # visual verification will find the exact match from the broader result set.
+    # Strip card suffixes for broader TCGdex search
     _SUFFIXES = re.compile(
         r"[\s-]+(?:EX|ex|GX|gx|V|VMAX|VSTAR|VStar|TAG\s*TEAM|BREAK|LV\.?\s*X)\s*$",
         re.IGNORECASE,
@@ -130,12 +206,11 @@ Respond ONLY with this exact JSON (no markdown, no explanation):
 
     # Use detected language for TCGdex search
     detected_lang = card_info.get("language", "en").lower().strip()
-    # TCGdex supports: en, fr, es, it, pt, de, nl, pl, ru, ko, zh-hans, zh-hant, ja
     supported_langs = {"en", "de", "fr", "es", "it", "pt", "nl", "pl", "ru", "ko", "ja"}
     if detected_lang not in supported_langs:
         detected_lang = "en"
 
-    # Build (lang, search_name) pairs — try simplified name first (broader), then original as fallback
+    # Build (lang, search_name) pairs
     search_pairs = [(detected_lang, card_name_simple)]
     if card_name_simple != card_name:
         search_pairs.append((detected_lang, card_name))
@@ -144,7 +219,7 @@ Respond ONLY with this exact JSON (no markdown, no explanation):
         if card_name_en_simple != card_name_en:
             search_pairs.append(("en", card_name_en))
 
-    # Collect all raw results first, setting _lang on each card
+    # Collect all raw results first
     all_results = []
     for lang, search_name in search_pairs:
         if len(all_results) >= 15:
@@ -173,7 +248,7 @@ Respond ONLY with this exact JSON (no markdown, no explanation):
                             "image": f"{c.get('image')}/low.webp" if c.get("image") else None,
                             "rarity": c.get("rarity"),
                             "lang": lang,
-                            "_lang": lang,  # internal dedup key field
+                            "_lang": lang,
                         })
         except Exception:
             continue
@@ -182,21 +257,19 @@ Respond ONLY with this exact JSON (no markdown, no explanation):
     for card in all_results:
         tcg_card_id = card.get("tcg_card_id", "")
         card_lang = card.get("_lang", "en")
-        # Extract set_id from card_id: "me02.5-022" -> "me02.5"
         if "-" in tcg_card_id:
             set_id = tcg_card_id.rsplit("-", 1)[0]
             local_set = db.query(Set).filter(
                 Set.tcg_set_id == set_id, Set.lang == card_lang
             ).first()
             if not local_set:
-                # Fallback: try without language filter
                 local_set = db.query(Set).filter(Set.tcg_set_id == set_id).first()
             if local_set:
                 card["set"] = local_set.name
                 if local_set.abbreviation:
                     card["set_abbreviation"] = local_set.abbreviation
 
-    # Dedup by (card_id, _lang) composite key — same card in different languages counts once per lang
+    # Dedup by (card_id, _lang)
     seen = set()
     deduped = []
     for card in all_results:
@@ -214,18 +287,17 @@ Respond ONLY with this exact JSON (no markdown, no explanation):
     number_match_count = 0
     number_match_clear = False
     if recognized_number:
-        # Normalize: "136/182" -> "136", "001" -> "1"
         num_match = re.match(r"(\d+)", str(recognized_number).strip())
         if num_match:
-            target_num = str(int(num_match.group(1)))  # strip leading zeros
+            target_num = str(int(num_match.group(1)))
 
             def number_sort_key(card):
                 card_num = card.get("number", "")
                 if card_num:
                     cn_match = re.match(r"(\d+)", str(card_num).strip())
                     if cn_match and str(int(cn_match.group(1))) == target_num:
-                        return 0  # exact match first
-                return 1  # non-matches after
+                        return 0
+                return 1
 
             deduped.sort(key=number_sort_key)
             number_match_count = sum(1 for card in deduped if number_sort_key(card) == 0)
@@ -234,11 +306,10 @@ Respond ONLY with this exact JSON (no markdown, no explanation):
             )
             logger.info(f"Ranked results by number match (target: {target_num})")
 
-    # Visual verification: ask Gemini to pick the best match from candidate images
-    top_candidates = deduped[:5]  # max 5 to keep costs low
+    # Visual verification
+    top_candidates = deduped[:5]
     if len(top_candidates) >= 2 and not number_match_clear:
         try:
-            # Download candidate images
             candidate_parts = [
                 {"text": "Here is the original card photo the user took:"},
                 {"inline_data": {"mime_type": mime_type, "data": image_b64}},
@@ -294,12 +365,10 @@ Respond ONLY with this exact JSON (no markdown, no explanation):
             if verify_resp.status_code == 200:
                 verify_result = verify_resp.json()
                 verify_text = verify_result["candidates"][0]["content"]["parts"][0]["text"].strip()
-                # Extract the number from response
                 pick_match = re.search(r"(\d+)", verify_text)
                 if pick_match:
                     pick = int(pick_match.group(1))
                     if 1 <= pick <= len(top_candidates):
-                        # Move the picked candidate to the front
                         winner = top_candidates[pick - 1]
                         deduped.remove(winner)
                         deduped.insert(0, winner)
@@ -312,7 +381,21 @@ Respond ONLY with this exact JSON (no markdown, no explanation):
         except Exception as e:
             logger.warning(f"Visual verification failed (non-blocking): {e}")
 
+    # --- Cardmarket IT price (real-time via Gemini Search grounding) ---
+    # Use the best match to build the most specific query possible
+    best_match = deduped[0] if deduped else None
+    set_name_for_price = best_match.get("set") if best_match else card_info.get("set_hint")
+    number_for_price = best_match.get("number") if best_match else recognized_number
+
+    cardmarket_it_price = await fetch_cardmarket_it_price(
+        card_name_en=card_name_en,
+        card_number=number_for_price,
+        set_name=set_name_for_price,
+        api_key=api_key,
+    )
+
     return {
         "recognized": card_info,
         "matches": deduped[:8],
+        "cardmarket_it": cardmarket_it_price,  # None if fetch failed
     }

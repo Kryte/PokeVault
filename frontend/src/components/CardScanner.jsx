@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Camera, Upload, X, Check, Loader2, RefreshCw, Plus } from 'lucide-react'
+import { Camera, Upload, X, Check, Loader2, RefreshCw, Plus, ExternalLink } from 'lucide-react'
 import { recognizeCard, addToCollection } from '../api/client'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSettings } from '../contexts/SettingsContext'
@@ -126,7 +126,6 @@ function ScanAddModal({ match, defaultLang, onClose, onAdded }) {
               </select>
             </div>
 
-
             {/* Purchase price */}
             <div>
               <label className="text-xs text-text-muted mb-1 block">{t('scanner.purchasePriceLabel')}</label>
@@ -156,6 +155,61 @@ function ScanAddModal({ match, defaultLang, onClose, onAdded }) {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── Cardmarket IT Price Box ─────────────────────────────────────────────────
+function CardmarketITPrice({ data }) {
+  if (!data) return null
+
+  const hasPrice = data.price_avg !== null && data.price_avg !== undefined
+  const hasTrend = data.price_trend !== null && data.price_trend !== undefined
+
+  return (
+    <div className="rounded-2xl p-4"
+      style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)' }}>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-green-400">
+          🇮🇹 Cardmarket IT
+        </p>
+        {data.url && (
+          <a
+            href={data.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-[10px] text-green-400/70 hover:text-green-400 transition-colors"
+          >
+            Vedi <ExternalLink size={10} />
+          </a>
+        )}
+      </div>
+
+      {hasPrice ? (
+        <div className="flex items-end gap-4">
+          <div>
+            <p className="text-[10px] text-text-muted mb-0.5">Prezzo medio</p>
+            <p className="text-xl font-black text-green-400">
+              € {Number(data.price_avg).toFixed(2)}
+            </p>
+          </div>
+          {hasTrend && (
+            <div>
+              <p className="text-[10px] text-text-muted mb-0.5">Trend</p>
+              <p className="text-sm font-bold text-green-300">
+                € {Number(data.price_trend).toFixed(2)}
+              </p>
+            </div>
+          )}
+          {data.found_language && data.found_language !== 'it' && (
+            <p className="text-[9px] text-text-muted ml-auto self-end">
+              (prezzo {data.found_language.toUpperCase()})
+            </p>
+          )}
+        </div>
+      ) : (
+        <p className="text-xs text-text-muted">Prezzo non trovato su Cardmarket IT</p>
+      )}
     </div>
   )
 }
@@ -271,6 +325,7 @@ export default function CardScanner({ isOpen, onClose, onCardSelected }) {
         {/* RESULTS */}
         {phase === 'results' && results && (
           <div className="space-y-4">
+            {/* Detected card info */}
             <div className="rounded-2xl p-4"
               style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted mb-2">{t('scanner.detected')}</p>
@@ -285,16 +340,18 @@ export default function CardScanner({ isOpen, onClose, onCardSelected }) {
               )}
             </div>
 
+            {/* Cardmarket IT price */}
+            <CardmarketITPrice data={results.cardmarket_it} />
+
             {results.matches?.length > 0 ? (
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted mb-3">
                   {t('scanner.matches')} ({results.matches.length})
                 </p>
-                {/* Grid layout — like Sets overview */}
+                {/* Grid layout */}
                 <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-7 gap-2">
                   {results.matches.map(match => {
                     const matchLang = match.lang || match._lang || 'en'
-                    // Format card ID as "SETCODE NUMBER", e.g. "OBF 125"
                     const setCode = (match.set_abbreviation || match.set?.id || (match.id || '').split('-')[0]).toUpperCase()
                     const localNum = match.localId || match.number || ''
                     const cardIdLabel = `${setCode} ${localNum}`.trim()
@@ -303,7 +360,6 @@ export default function CardScanner({ isOpen, onClose, onCardSelected }) {
                         className="flex flex-col cursor-pointer group hover:shadow-glow transition-all duration-200 hover:rotate-1"
                         onClick={() => setAddModal(match)}
                       >
-                        {/* Card image — full width, portrait aspect ratio — exact CardItem hover effect */}
                         <div className="relative w-full aspect-[2.5/3.5] overflow-hidden rounded-xl ring-1 ring-white/5 group-hover:ring-2 group-hover:ring-brand-red/30 transition-all duration-200">
                           {match.image
                             ? <img src={match.image} alt={match.name}
@@ -312,7 +368,7 @@ export default function CardScanner({ isOpen, onClose, onCardSelected }) {
                                 <span className="text-[9px] text-text-muted text-center p-1">{match.name}</span>
                               </div>
                           }
-                          {/* Language badge — top right overlay */}
+                          {/* Language badge */}
                           <span className={`absolute top-1 right-1 text-[8px] font-black px-1 py-0.5 rounded leading-none ${
                             matchLang === 'de'
                               ? 'bg-yellow-500/80 text-yellow-900 border border-yellow-500/50'
@@ -324,7 +380,7 @@ export default function CardScanner({ isOpen, onClose, onCardSelected }) {
                           }`}>
                             {matchLang === 'de' ? '🇩🇪' : matchLang === 'it' ? '🇮🇹' : matchLang === 'zh' ? '🇨🇳' : '🇬🇧'}
                           </span>
-                          {/* Hover overlay with add button */}
+                          {/* Hover overlay */}
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100 rounded-xl">
                             <div className="w-7 h-7 rounded-full flex items-center justify-center"
                               style={{ background: '#e3000b', boxShadow: '0 0 12px rgba(227,0,11,0.5)' }}>
